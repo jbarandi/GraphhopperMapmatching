@@ -19,6 +19,8 @@ import android.view.Window;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -33,6 +35,7 @@ import com.graphhopper.util.Parameters;
 import com.graphhopper.util.PointList;
 import com.graphhopper.util.ProgressListener;
 import com.graphhopper.util.StopWatch;
+import com.graphhopper.util.shapes.GHPoint;
 
 import org.oscim.android.MapView;
 import org.oscim.android.canvas.AndroidGraphics;
@@ -61,10 +64,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import am.victor.graphhoppermapmatching.db.DatabaseAccess;
+import am.victor.graphhoppermapmatching.models.TrackPoint;
+
 public class MainActivity extends Activity {
+
     private static final int NEW_MENU_ID = Menu.FIRST + 1;
     private MapView mapView;
-    private GraphHopper hopper;
+    private GraphHopper graphHopper;
     private GeoPoint start;
     private GeoPoint end;
     private Spinner localSpinner;
@@ -80,6 +87,8 @@ public class MainActivity extends Activity {
     private File mapsFolder;
     private ItemizedLayer<MarkerItem> itemizedLayer;
     private PathLayer pathLayer;
+
+    private List<TrackPoint> trackPointsList;
 
     protected boolean onLongPress(GeoPoint p) {
         if (!isReady())
@@ -145,6 +154,12 @@ public class MainActivity extends Activity {
         // if (AndroidHelper.isFastDownload(this))
         chooseAreaFromRemote();
         chooseAreaFromLocal();
+
+        DatabaseAccess databaseAccess = DatabaseAccess.getInstance(this);
+        databaseAccess.open();
+        trackPointsList = databaseAccess.getTrackPoints();
+        databaseAccess.close();
+
     }
 
     @Override
@@ -162,10 +177,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (hopper != null)
-            hopper.close();
+        if (graphHopper != null)
+            graphHopper.close();
 
-        hopper = null;
+        graphHopper = null;
         // necessary?
         System.gc();
 
@@ -175,14 +190,14 @@ public class MainActivity extends Activity {
 
     boolean isReady() {
         // only return true if already loaded
-        if (hopper != null)
+        if (graphHopper != null)
             return true;
 
         if (prepareInProgress) {
             logUser("Preparation still in progress");
             return false;
         }
-        logUser("Prepare finished but hopper not ready. This happens when there was an error while loading the files");
+        logUser("Prepare finished but graphHopper not ready. This happens when there was an error while loading the files");
         return false;
     }
 
@@ -368,7 +383,15 @@ public class MainActivity extends Activity {
         GeoPoint mapCenter = tileSource.getMapInfo().boundingBox.getCenterPoint();
         mapView.map().setMapPosition(mapCenter.getLatitude(), mapCenter.getLongitude(), 1 << 15);
 
-        setContentView(mapView);
+        LinearLayout startLinearLayout = findViewById(R.id.start_layout);
+        startLinearLayout.setVisibility(View.GONE);
+
+        LinearLayout mapLinearLayout = findViewById(R.id.map_layout);
+        mapLinearLayout.setVisibility(View.VISIBLE);
+
+        FrameLayout mapContainerFrameLayout = findViewById(R.id.map_container);
+        mapContainerFrameLayout.addView(mapView);
+//        setContentView(mapView);
         loadGraphStorage();
     }
 
@@ -379,7 +402,7 @@ public class MainActivity extends Activity {
                 GraphHopper tmpHopp = new GraphHopper().forMobile();
                 tmpHopp.load(new File(mapsFolder, currentArea).getAbsolutePath() + "-gh");
                 log("found graph " + tmpHopp.getGraphHopperStorage().toString() + ", nodes:" + tmpHopp.getGraphHopperStorage().getNodes());
-                hopper = tmpHopp;
+                graphHopper = tmpHopp;
                 return null;
             }
 
@@ -388,12 +411,57 @@ public class MainActivity extends Activity {
                     logUser("An error happened while creating graph:"
                             + getErrorMessage());
                 } else {
-                    logUser("Finished loading graph. Long press to define where to start and end the route.");
+                    logUser("Finished loading graph. Press the button to load the track.");
                 }
 
                 finishPrepare();
             }
         }.execute();
+    }
+
+    private void loadTrack() {
+
+        Style style = Style.builder()
+                .fixed(true)
+                .generalization(Style.GENERALIZATION_SMALL)
+                .strokeColor(R.color.colorAccent)
+                .strokeWidth(2 * getResources().getDisplayMetrics().density)
+                .build();
+        PathLayer trackPathLayer = new PathLayer(mapView.map(), style);
+        List<GeoPoint> geoPoints = new ArrayList<>();
+        int index;
+        TrackPoint trackPoint;
+        GeoPoint geoPoint;
+        for (index = 0; index < trackPointsList.size(); index++) {
+
+            trackPoint = trackPointsList.get(index);
+            geoPoint = new GeoPoint(trackPoint.getLatitude(), trackPoint.getLongitude());
+            geoPoints.add(geoPoint);
+
+        }
+
+        trackPathLayer.setPoints(geoPoints);
+
+        mapView.map().layers().add(trackPathLayer);
+        mapView.map().updateMap(true);
+
+//        BoundingBox bb = new BoundingBox(latLong2.latitude,
+//                latLong3.longitude, latLong3.latitude, latLong2.longitude);
+//        Dimension dimension = this.mapView.getModel().mapViewDimension.getDimension();
+
+        GeoPoint centroidGeoPoint = computeCentroid(geoPoints);
+
+        this.mapView.map().setMapPosition(centroidGeoPoint.getLatitude(),
+                centroidGeoPoint.getLongitude(), 2500);
+
+
+    }
+
+    private void performMatching() {
+
+        List<GHPoint> ghPointList = trackPointsToGHPoints(trackPointsList);
+        calcPath(ghPointList);
+
     }
 
     private void finishPrepare() {
@@ -405,7 +473,7 @@ public class MainActivity extends Activity {
                 .fixed(true)
                 .generalization(Style.GENERALIZATION_SMALL)
                 .strokeColor(0x9900cc33)
-                .strokeWidth(4 * getResources().getDisplayMetrics().density)
+                .strokeWidth(getResources().getDisplayMetrics().density)
                 .build();
         PathLayer pathLayer = new PathLayer(mapView.map(), style);
         List<GeoPoint> geoPoints = new ArrayList<>();
@@ -439,7 +507,7 @@ public class MainActivity extends Activity {
                         setAlgorithm(Parameters.Algorithms.DIJKSTRA_BI);
                 req.getHints().
                         put(Parameters.Routing.INSTRUCTIONS, "false");
-                GHResponse resp = hopper.route(req);
+                GHResponse resp = graphHopper.route(req);
                 time = sw.stop().getSeconds();
                 return resp.getBest();
             }
@@ -456,6 +524,48 @@ public class MainActivity extends Activity {
                     pathLayer = createPathLayer(resp);
                     mapView.map().layers().add(pathLayer);
                     mapView.map().updateMap(true);
+                } else {
+                    logUser("Error:" + resp.getErrors());
+                }
+                shortestPathRunning = false;
+            }
+        }.execute();
+    }
+
+    public void calcPath(final List<GHPoint> ghPointList) {
+
+        log("calculating path ...");
+        new AsyncTask<Void, Void, PathWrapper>() {
+            float time;
+
+            protected PathWrapper doInBackground(Void... v) {
+
+                log("We are in do I B");
+
+                StopWatch sw = new StopWatch().start();
+                GHRequest req = new GHRequest(ghPointList).
+                        setAlgorithm(Parameters.Algorithms.DIJKSTRA_BI);
+                req.getHints().
+                        put(Parameters.Routing.INSTRUCTIONS, "false");
+                GHResponse resp = graphHopper.route(req);
+                time = sw.stop().getSeconds();
+                log("Emd of do I B");
+                return resp.getBest();
+            }
+
+            protected void onPostExecute(PathWrapper resp) {
+                log("We are in O P E");
+                log("resp.hasErrors():" + resp.hasErrors());
+                if (!resp.hasErrors()) {
+                    logUser("the route is " + (int) (resp.getDistance() / 100) / 10f
+                            + "km long, time:" + resp.getTime() / 60000f + "min, debug:" + time);
+
+                    pathLayer = createPathLayer(resp);
+                    mapView.map().layers().add(pathLayer);
+                    mapView.map().updateMap(true);
+
+                    log("No errors in O P E");
+
                 } else {
                     logUser("Error:" + resp.getErrors());
                 }
@@ -505,6 +615,20 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    public void onActionButtonClick(View view) {
+
+        Button actionButton = (Button) view;
+        String buttonText = actionButton.getText().toString();
+
+        if (buttonText.equals(getString(R.string.load_track))) {
+            loadTrack();
+            actionButton.setText(R.string.perform_matching);
+        } else if (buttonText.equals(getString(R.string.perform_matching))) {
+            performMatching();
+        }
+
+    }
+
     public interface MySpinnerListener {
         void onSelect(String selectedArea, String selectedFile);
     }
@@ -524,5 +648,37 @@ public class MainActivity extends Activity {
             return false;
         }
     }
+
+    private List<GHPoint> trackPointsToGHPoints(List<TrackPoint> trackPointList) {
+
+        List<GHPoint> ghPointList = new ArrayList<>();
+        int index;
+        TrackPoint trackPoint;
+        GHPoint ghPoint;
+        for (index = 0; index < trackPointList.size(); index++) {
+
+            trackPoint = trackPointList.get(index);
+            ghPoint = new GHPoint(trackPoint.getLatitude(), trackPoint.getLongitude());
+            ghPointList.add(ghPoint);
+
+        }
+
+        return ghPointList;
+
+    }
+
+    private GeoPoint computeCentroid(List<GeoPoint> points) {
+        double latitude = 0;
+        double longitude = 0;
+        int n = points.size();
+
+        for (GeoPoint point : points) {
+            latitude += point.getLatitude();
+            longitude += point.getLongitude();
+        }
+
+        return new GeoPoint(latitude / n, longitude / n);
+    }
+
 }
 

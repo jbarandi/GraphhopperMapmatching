@@ -2,5 +2,8 @@
 
     <string name="app_name">GraphHopper</string>
     <string name="title_activity_main">GraphHopper</string>
- 
+
+    <string name="load_track">Load track</string>
+    <string name="perform_matching">Perform matching</string>
+
 </resources>

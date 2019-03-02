@@ -28,12 +28,11 @@ android {
     }
 }
 
-/** only necessary if you need to use latest SNAPSHOT
+/** only necessary if you need to use latest SNAPSHOT **/
 configurations.all {
     // check for updates every build
     resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
 }
- **/
 
 dependencies {
     implementation('com.graphhopper:graphhopper-core:0.12-SNAPSHOT') {
@@ -41,6 +40,9 @@ dependencies {
         exclude group: 'org.openstreetmap.osmosis', module: 'osmosis-osm-binary'
         exclude group: 'org.apache.xmlgraphics', module: 'xmlgraphics-commons'
     }
+
+    implementation 'org.mapsforge:mapsforge-core:0.10.0'
+
     implementation 'org.mapsforge:vtm:0.10.0'
     implementation 'org.mapsforge:vtm-android:0.10.0'
     implementation 'org.mapsforge:vtm-android:0.10.0:natives-armeabi-v7a'
@@ -53,6 +55,14 @@ dependencies {
     implementation 'org.slf4j:slf4j-api:1.7.25'
     implementation 'org.slf4j:slf4j-android:1.7.25'
 
+    implementation 'com.readystatesoftware.sqliteasset:sqliteassethelper:+'
+
     implementation 'com.github.graphhopper.map-matching:graphhopper-map-matching-core:0.12.0-pre2'
+
+//        implementation ( 'com.github.graphhopper:map-matching:0.12.0-pre2' ){
+//        exclude group: 'com.github.graphhopper.map-matching', module: 'graphhopper-map-matching-web'
+//    }
+
+    implementation 'com.github.FasterXML:jackson-dataformat-xml:jackson-dataformat-xml-2.9.8'
 
 }
